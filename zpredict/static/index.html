@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>zpredict — parimutuel prediction market</title>
+<style>
+  :root{
+    --ink:#0d1014; --panel:#141a21; --panel-2:#0f151b; --line:#222c37;
+    --text:#e7ebef; --muted:#8b97a4; --amber:#f4b728; --amber-dim:#a37d1c;
+    --ok:#57c78a; --bad:#e06a5a;
+    --c0:#f4b728; --c1:#6ea8fe; --c2:#57c78a; --c3:#c07ce0;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--text);font-family:var(--sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:var(--amber)}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 80px}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;
+    border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px}
+  h1{font-family:var(--mono);font-size:20px;letter-spacing:.02em;margin:0;font-weight:600}
+  h1 .z{color:var(--amber)}
+  .tag{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:3px 9px}
+  .sub{width:100%;color:var(--muted);font-size:13px;margin-top:2px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);margin:0 0 10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin-bottom:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  input,select,button{font:inherit;color:var(--text);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+  input[type=number]{width:110px;font-family:var(--mono)}
+  button{cursor:pointer;background:var(--panel-2);transition:border-color .15s,background .15s}
+  button:hover{border-color:var(--amber-dim)}
+  button.primary{background:var(--amber);color:#171200;border-color:var(--amber);font-weight:600}
+  button.primary:hover{filter:brightness(1.05)}
+  .id-strip{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .bal{font-family:var(--mono)}
+  .bal b{color:var(--amber);font-size:18px}
+  .market{border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:18px;margin-bottom:16px}
+  .q{font-size:16px;font-weight:600;margin:0 0 4px}
+  .status{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+  .status.open{color:var(--ok)} .status.resolved{color:var(--muted)}
+  /* signature: the pool split bar — crowd belief as a price */
+  .poolbar{display:flex;height:38px;border-radius:8px;overflow:hidden;margin:14px 0 6px;
+    background:var(--panel-2);border:1px solid var(--line)}
+  .poolbar .seg{display:flex;align-items:center;justify-content:center;min-width:0;
+    font-family:var(--mono);font-size:12px;color:#0d0d0d;font-weight:600;
+    transition:flex-basis .5s cubic-bezier(.2,.7,.2,1);white-space:nowrap;overflow:hidden}
+  .poolbar.empty{align-items:center;justify-content:center;color:var(--muted);
+    font-family:var(--mono);font-size:12px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px}
+  .legend .it{display:flex;align-items:center;gap:7px;font-size:13px}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none}
+  .legend .mult{font-family:var(--mono);color:var(--muted);font-size:12px}
+  .predict{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;
+    padding-top:14px;border-top:1px solid var(--line)}
+  .resolved-note{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:13px}
+  .resolved-note b{color:var(--text)}
+  .admin-open{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
+  .msg{font-size:13px;min-height:18px;margin-top:8px}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .muted{color:var(--muted)}
+  details.admin{margin-top:26px}
+  details.admin summary{cursor:pointer;font-family:var(--mono);font-size:12px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .field{display:flex;flex-direction:column;gap:5px;margin:10px 0}
+  .field label{font-size:12px;color:var(--muted)}
+  @media (prefers-reduced-motion:reduce){.poolbar .seg{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="z">z</span>predict</h1>
+    <span class="tag">play money</span>
+    <span class="tag">parimutuel</span>
+    <p class="sub">A prediction market skeleton. Points are not ZEC and carry no value — the shielded, real-value layer comes later. The bar under each question is the crowd's belief, priced.</p>
+  </header>
+
+  <div class="panel id-strip" id="identity"><!-- filled by JS --></div>
+
+  <p class="eyebrow">Open markets</p>
+  <div id="markets"><p class="muted">Loading…</p></div>
+
+  <details class="admin">
+    <summary>Committee panel</summary>
+    <div class="panel">
+      <div class="field">
+        <label>Admin token (placeholder for the committee — dev value is <code>committee-dev-token</code>)</label>
+        <input id="adminToken" placeholder="x-admin-token" style="width:100%;max-width:340px" />
+      </div>
+      <div class="field">
+        <label>New market question</label>
+        <input id="newQ" placeholder="Will …?" style="width:100%" />
+      </div>
+      <div class="field">
+        <label>Outcomes (comma-separated)</label>
+        <input id="newO" value="YES, NO" style="width:100%;max-width:340px" />
+      </div>
+      <button class="primary" onclick="createMarket()">Create market</button>
+      <div class="msg" id="adminMsg"></div>
+    </div>
+  </details>
+</div>
+
+<script>
+const OUTCOME_COLORS = ["var(--c0)","var(--c1)","var(--c2)","var(--c3)"];
+let USER = null;
+
+const api = async (path, opts={}) => {
+  const res = await fetch(path, {
+    headers: {"content-type":"application/json", ...(opts.headers||{})},
+    ...opts,
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || ("request failed ("+res.status+")"));
+  return data;
+};
+const adminToken = () => document.getElementById("adminToken").value.trim();
+const pct = x => (x*100).toFixed(0)+"%";
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---- identity ----
+async function initUser(){
+  const saved = localStorage.getItem("zp_user");
+  if(saved){ try{ USER = await api("/api/users/"+saved).then(d=>d.user); }catch{ localStorage.removeItem("zp_user"); } }
+  renderIdentity();
+}
+function renderIdentity(){
+  const el = document.getElementById("identity");
+  if(!USER){
+    el.innerHTML = `<div class="field" style="margin:0;flex:1">
+        <label>Pick a name to get 1,000 play points</label>
+        <div class="row"><input id="nm" placeholder="your handle" />
+        <button class="primary" onclick="createUser()">Start</button></div>
+      </div><div class="msg" id="idMsg"></div>`;
+  } else {
+    el.innerHTML = `<div class="bal">Playing as <b style="color:var(--text)">${esc(USER.name)}</b>
+        &nbsp;·&nbsp; balance <b>${USER.balance}</b> pts</div>
+      <button onclick="switchUser()">Switch</button>`;
+  }
+}
+async function createUser(){
+  const name = document.getElementById("nm").value.trim();
+  try{
+    USER = await api("/api/users",{method:"POST",body:JSON.stringify({name})});
+    localStorage.setItem("zp_user", USER.id);
+    renderIdentity(); loadMarkets();
+  }catch(e){ document.getElementById("idMsg").className="msg err"; document.getElementById("idMsg").textContent=e.message; }
+}
+function switchUser(){ localStorage.removeItem("zp_user"); USER=null; renderIdentity(); }
+async function refreshUser(){
+  if(!USER) return;
+  USER = await api("/api/users/"+USER.id).then(d=>d.user);
+  renderIdentity();
+}
+
+// ---- markets ----
+async function loadMarkets(){
+  const box = document.getElementById("markets");
+  try{
+    const views = await api("/api/markets");
+    box.innerHTML = views.length ? views.map(marketCard).join("") :
+      `<p class="muted">No markets yet. Open the committee panel to create one.</p>`;
+  }catch(e){ box.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+
+function marketCard(v){
+  const m = v.market, open = m.status === "open";
+  const total = v.total_units;
+  const bar = total === 0
+    ? `<div class="poolbar empty">no stake yet — be the first to set the price</div>`
+    : `<div class="poolbar">` + v.outcomes.map((o,i)=>{
+        const share = o.units/total;
+        return share>0 ? `<div class="seg" style="flex:0 0 ${share*100}%;background:${OUTCOME_COLORS[i%4]}">${esc(o.outcome)} ${pct(share)}</div>` : "";
+      }).join("") + `</div>`;
+  const legend = `<div class="legend">` + v.outcomes.map((o,i)=>{
+      const mult = o.payout_multiple ? `×${o.payout_multiple.toFixed(2)}` : "—";
+      return `<div class="it"><span class="dot" style="background:${OUTCOME_COLORS[i%4]}"></span>
+        ${esc(o.outcome)} <span class="mult">${o.units} pts · ${mult}</span></div>`;
+    }).join("") + `</div>`;
+
+  const opts = m.outcomes.map(o=>`<option>${esc(o)}</option>`).join("");
+  const predict = open ? `<div class="predict">
+      <select id="out-${m.id}">${opts}</select>
+      <input type="number" id="stake-${m.id}" min="1" value="50" />
+      <button class="primary" onclick="predict('${m.id}')">Predict</button>
+      <span class="msg" id="msg-${m.id}"></span>
+    </div>` : "";
+
+  const resolvePanel = open ? `<div class="admin-open row">
+      <span class="muted" style="font-size:12px">Committee:</span>
+      <select id="win-${m.id}">${opts}</select>
+      <input id="note-${m.id}" placeholder="resolution note / source" style="flex:1;min-width:160px" />
+      <button onclick="resolveMarket('${m.id}')">Resolve</button>
+    </div>` : "";
+
+  const resolvedNote = !open ? `<div class="resolved-note">
+      Resolved <b>${esc(m.winning_outcome||"")}</b> by ${esc(m.resolved_by||"committee")}${m.resolved_note?` — ${esc(m.resolved_note)}`:""}.</div>` : "";
+
+  return `<div class="market">
+    <div class="row" style="justify-content:space-between">
+      <p class="q">${esc(m.question)}</p>
+      <span class="status ${open?"open":"resolved"}">${open?"open":"resolved"}</span>
+    </div>
+    <div class="muted" style="font-size:12px">${total} pts in the pool</div>
+    ${bar}${legend}${predict}${resolvePanel}${resolvedNote}
+  </div>`;
+}
+
+async function predict(id){
+  if(!USER){ alert("Pick a name first."); return; }
+  const outcome = document.getElementById("out-"+id).value;
+  const units = parseInt(document.getElementById("stake-"+id).value,10);
+  const msg = document.getElementById("msg-"+id);
+  try{
+    const r = await api("/api/markets/"+id+"/predict",{method:"POST",
+      body:JSON.stringify({user_id:USER.id, outcome, units})});
+    USER = r.user; renderIdentity();
+    msg.className="msg ok"; msg.textContent = `staked ${units} on ${outcome}`;
+    loadMarkets();
+  }catch(e){ msg.className="msg err"; msg.textContent = e.message; }
+}
+
+async function createMarket(){
+  const q = document.getElementById("newQ").value;
+  const outcomes = document.getElementById("newO").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const msg = document.getElementById("adminMsg");
+  try{
+    await api("/api/markets",{method:"POST",
+      headers:{"x-admin-token":adminToken()}, body:JSON.stringify({question:q, outcomes})});
+    msg.className="msg ok"; msg.textContent="market created";
+    document.getElementById("newQ").value=""; loadMarkets();
+  }catch(e){ msg.className="msg err"; msg.textContent=e.message; }
+}
+
+async function resolveMarket(id){
+  const winning_outcome = document.getElementById("win-"+id).value;
+  const note = document.getElementById("note-"+id).value;
+  try{
+    await api("/api/markets/"+id+"/resolve",{method:"POST",
+      headers:{"x-admin-token":adminToken()},
+      body:JSON.stringify({winning_outcome, note, resolved_by:"committee"})});
+    await refreshUser(); loadMarkets();
+  }catch(e){ alert(e.message); }
+}
+
+initUser().then(loadMarkets);
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[package]
+name = "zpredict"
+version = "0.1.0"
+edition = "2021"
+description = "Play-money parimutuel prediction market — Phase 0/1 walking skeleton (no privacy layer yet)."
+
+[lib]
+name = "zpredict"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zpredict"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
