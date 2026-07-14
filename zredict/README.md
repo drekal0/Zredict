@@ -1,4 +1,4 @@
-# zpredict — play-money parimutuel prediction market
+# zredict — play-money parimutuel prediction market
 
 The **Phase 0/1 walking skeleton**: the thinnest end-to-end slice of the prediction market. Users hold play-money points, predict an outcome, the pool splits parimutuel-style, and a committee resolves. One Rust binary serves both the API and a clickable single-page UI.
 

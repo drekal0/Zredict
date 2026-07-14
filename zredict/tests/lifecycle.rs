@@ -1,7 +1,7 @@
 //! Lifecycle tests for the play-money engine (storage + parimutuel), exercised
 //! directly against the `Repo` without HTTP.
 
-use zpredict::{Error, MemStore, MarketStatus, Repo};
+use zredict::{Error, MemStore, MarketStatus, Repo};
 
 #[test]
 fn full_predict_resolve_payout() {

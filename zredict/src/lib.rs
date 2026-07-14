@@ -1,4 +1,4 @@
-//! zpredict — play-money parimutuel prediction market (Phase 0/1 walking skeleton).
+//! zredict — play-money parimutuel prediction market (Phase 0/1 walking skeleton).
 //!
 //! This is the thin, end-to-end slice: users hold play-money points, predict an
 //! outcome, the pool splits parimutuel-style, and a committee resolves. There is

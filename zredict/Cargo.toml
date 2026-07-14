@@ -1,15 +1,15 @@
 [package]
-name = "zpredict"
+name = "zredict"
 version = "0.1.0"
 edition = "2021"
 description = "Play-money parimutuel prediction market — Phase 0/1 walking skeleton (no privacy layer yet)."
 
 [lib]
-name = "zpredict"
+name = "zredict"
 path = "src/lib.rs"
 
 [[bin]]
-name = "zpredict"
+name = "zredict"
 path = "src/main.rs"
 
 [dependencies]

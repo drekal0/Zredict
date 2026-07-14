@@ -20,7 +20,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
-use zpredict::{MemStore, Repo};
+use zredict::{MemStore, Repo};
 
 type Db = Arc<dyn Repo>;
 
@@ -43,7 +43,7 @@ async fn main() {
         .with_state(db);
 
     let addr = "0.0.0.0:3000";
-    println!("zpredict listening on http://localhost:3000");
+    println!("zredict listening on http://localhost:3000");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
@@ -184,9 +184,9 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From<zpredict::Error> for AppError {
-    fn from(e: zpredict::Error) -> Self {
-        use zpredict::Error::*;
+impl From<zredict::Error> for AppError {
+    fn from(e: zredict::Error) -> Self {
+        use zredict::Error::*;
         let code = match e {
             UserNotFound | MarketNotFound => StatusCode::NOT_FOUND,
             MarketClosed | UnknownOutcome | ZeroUnits | InsufficientBalance { .. } => {
