@@ -123,6 +123,10 @@
           <label>Close in (minutes, optional)</label>
           <input id="newClose" type="number" min="0" placeholder="none" />
         </div>
+        <div class="field">
+          <label>House seed / outcome (optional)</label>
+          <input id="newSeed" type="number" min="0" placeholder="0" />
+        </div>
       </div>
       <button class="primary" onclick="createMarket()">Create market</button>
       <div class="msg" id="adminMsg"></div>
@@ -216,18 +220,20 @@ function clockLine(v){
 
 function marketCard(v){
   const m = v.market, phase = v.phase, total = v.total_units;
+  const seedTotal = v.outcomes.reduce(function(a,o){return a+o.seed_units;},0);
 
   const bar = total === 0
     ? '<div class="poolbar empty">no stake yet &mdash; be the first to set the price</div>'
     : '<div class="poolbar">' + v.outcomes.map(function(o,i){
-        const share = o.units/total;
+        const share = o.pool_units/total;
         return share>0 ? '<div class="seg" style="flex:0 0 '+(share*100)+'%;background:'+OUTCOME_COLORS[i%4]+'">'+esc(o.outcome)+' '+pct(share)+'</div>' : "";
       }).join("") + '</div>';
 
   const legend = '<div class="legend">' + v.outcomes.map(function(o,i){
       const mult = o.payout_multiple ? '&times;'+o.payout_multiple.toFixed(2) : "&mdash;";
+      const seedNote = o.seed_units ? ' ('+o.seed_units+' seed)' : '';
       return '<div class="it"><span class="dot" style="background:'+OUTCOME_COLORS[i%4]+'"></span> '
-        + esc(o.outcome)+' <span class="mult">'+o.units+' pts &middot; '+mult+'</span></div>';
+        + esc(o.outcome)+' <span class="mult">'+o.pool_units+' pts'+seedNote+' &middot; '+mult+'</span></div>';
     }).join("") + '</div>';
 
   const opts = m.outcomes.map(function(o){ return '<option>'+esc(o)+'</option>'; }).join("");
@@ -259,7 +265,7 @@ function marketCard(v){
     + '<div class="row" style="justify-content:space-between;align-items:flex-start">'
     + '<div style="flex:1;min-width:0"><p class="q">'+esc(m.question)+'</p>'+clockLine(v)+'</div>'
     + '<span class="badge '+phase+'">'+phase+'</span></div>'
-    + '<div class="muted" style="font-size:12px;margin-top:6px">'+total+' pts in the pool</div>'
+    + '<div class="muted" style="font-size:12px;margin-top:6px">'+total+' pts in the pool'+(seedTotal? ' &middot; incl. '+seedTotal+' house seed (bonus to winners)':'')+'</div>'
     + bar+legend+predict+awaiting+resolvePanel+resolution
     + '</div>';
 }
@@ -282,14 +288,16 @@ async function createMarket(){
   const q = document.getElementById("newQ").value;
   const outcomes = document.getElementById("newO").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
   const mins = parseInt(document.getElementById("newClose").value,10);
+  const seed = parseInt(document.getElementById("newSeed").value,10);
   const body = {question:q, outcomes:outcomes};
   if(!isNaN(mins) && mins > 0) body.closes_in_seconds = mins*60;
+  if(!isNaN(seed) && seed > 0) body.seed_each = seed;
   const msg = document.getElementById("adminMsg");
   try{
     await api("/api/markets",{method:"POST",
       headers:{"x-admin-token":adminToken()}, body:JSON.stringify(body)});
     msg.className="msg ok"; msg.textContent="market created";
-    document.getElementById("newQ").value=""; document.getElementById("newClose").value="";
+    document.getElementById("newQ").value=""; document.getElementById("newClose").value=""; document.getElementById("newSeed").value="";
     loadMarkets();
   }catch(e){ msg.className="msg err"; msg.textContent=e.message; }
 }

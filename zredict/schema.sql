@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS markets (
   question         TEXT NOT NULL,
   outcomes         TEXT NOT NULL,           -- JSON array of outcome labels
   closes_at        INTEGER,                 -- unix seconds; NULL = no deadline
+  seed             TEXT,                    -- JSON {outcome: units}; house subsidy, NULL = none
   status           TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
   winning_outcome  TEXT,
   resolved_by      TEXT,

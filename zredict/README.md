@@ -16,6 +16,7 @@ Open the page, pick a name (1,000 free points), and predict. To create or resolv
 ## What it proves
 
 - End-to-end lifecycle over a real HTTP API: create market → predict → resolve → payout.
+- **Seed liquidity** — an optional house subsidy per outcome gives a fresh market a starting price (no dead empty bar). It's added to the prize pool but the house never claims it: at resolution the seed is forfeited and becomes a bonus split among the real winners, never competing with them.
 - **Market lifecycle** — markets accept predictions until an optional close time, then sit *closed* awaiting the committee, then *resolved*. Timed markets can't be resolved early; untimed ones the committee closes by resolving.
 - **Parimutuel payouts** (winners split the whole pool pro-rata; refunds if nobody picked the winner).
 - **Atomic balances** — you can't overspend by racing two predictions (the debit + insert happen under one lock; the SQL equivalent is in `schema.sql`).

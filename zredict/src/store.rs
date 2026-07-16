@@ -20,7 +20,14 @@ pub trait Repo: Send + Sync {
     fn create_user(&self, name: &str) -> User;
     fn get_user(&self, id: &str) -> Result<User>;
     /// `closes_at`: optional unix-seconds deadline after which predictions stop.
-    fn create_market(&self, question: &str, outcomes: Vec<String>, closes_at: Option<u64>) -> Market;
+    /// `seed_each`: house subsidy placed on EVERY outcome (0 = no seed).
+    fn create_market(
+        &self,
+        question: &str,
+        outcomes: Vec<String>,
+        closes_at: Option<u64>,
+        seed_each: u64,
+    ) -> Market;
     fn list_markets(&self) -> Vec<Market>;
     fn pool_view(&self, market_id: &str) -> Result<PoolView>;
     fn positions_of_user(&self, user_id: &str) -> Vec<Position>;
@@ -86,13 +93,25 @@ impl Repo for MemStore {
             .ok_or(Error::UserNotFound)
     }
 
-    fn create_market(&self, question: &str, outcomes: Vec<String>, closes_at: Option<u64>) -> Market {
+    fn create_market(
+        &self,
+        question: &str,
+        outcomes: Vec<String>,
+        closes_at: Option<u64>,
+        seed_each: u64,
+    ) -> Market {
+        let seed: HashMap<String, u64> = if seed_each > 0 {
+            outcomes.iter().map(|o| (o.clone(), seed_each)).collect()
+        } else {
+            HashMap::new()
+        };
         let market = Market {
             id: new_id("m"),
             question: question.trim().to_string(),
             outcomes,
             status: MarketStatus::Open,
             closes_at,
+            seed,
             winning_outcome: None,
             resolved_by: None,
             resolved_note: None,
@@ -109,7 +128,6 @@ impl Repo for MemStore {
     fn list_markets(&self) -> Vec<Market> {
         let now = now();
         let mut m: Vec<Market> = self.inner.lock().unwrap().markets.values().cloned().collect();
-        // Order by phase (open, then closed, then resolved), then by question.
         m.sort_by(|a, b| {
             let rank = |mk: &Market| match phase_of(mk, now) {
                 Phase::Open => 0,
@@ -124,26 +142,40 @@ impl Repo for MemStore {
     fn pool_view(&self, market_id: &str) -> Result<PoolView> {
         let g = self.inner.lock().unwrap();
         let market = g.markets.get(market_id).cloned().ok_or(Error::MarketNotFound)?;
-        let mut units: HashMap<String, u64> = HashMap::new();
+
+        let mut real: HashMap<String, u64> = HashMap::new();
         for p in g.positions.iter().filter(|p| p.market_id == market_id) {
-            *units.entry(p.outcome.clone()).or_insert(0) += p.units;
+            *real.entry(p.outcome.clone()).or_insert(0) += p.units;
         }
-        let total: u64 = units.values().sum();
+        let total_real: u64 = real.values().sum();
+        let total_pool = total_real + market.seed_total();
+
         let outcomes = market
             .outcomes
             .iter()
             .map(|o| {
-                let u = units.get(o).copied().unwrap_or(0);
+                let r = real.get(o).copied().unwrap_or(0);
+                let s = market.seed_of(o);
+                let pool = r + s;
                 OutcomeStat {
                     outcome: o.clone(),
-                    units: u,
-                    implied_prob: if total == 0 { 0.0 } else { u as f64 / total as f64 },
-                    payout_multiple: if u == 0 { None } else { Some(total as f64 / u as f64) },
+                    real_units: r,
+                    seed_units: s,
+                    pool_units: pool,
+                    implied_prob: if total_pool == 0 { 0.0 } else { pool as f64 / total_pool as f64 },
+                    // Return per REAL unit if this wins; seed is a bonus, not a claimant.
+                    payout_multiple: if r == 0 { None } else { Some(total_pool as f64 / r as f64) },
                 }
             })
             .collect();
-        let phase = phase_of(&market, now());
-        Ok(PoolView { market, phase, total_units: total, outcomes })
+
+        Ok(PoolView {
+            phase: phase_of(&market, now()),
+            market,
+            total_units: total_pool,
+            total_real_units: total_real,
+            outcomes,
+        })
     }
 
     fn positions_of_user(&self, user_id: &str) -> Vec<Position> {
@@ -178,7 +210,6 @@ impl Repo for MemStore {
             return Err(Error::InsufficientBalance { have: user.balance, need: units });
         }
 
-        // Atomic debit + insert (still holding the lock).
         g.users.get_mut(user_id).unwrap().balance -= units;
         let pos = Position {
             id: new_id("p"),
@@ -201,15 +232,15 @@ impl Repo for MemStore {
         let mut g = self.inner.lock().unwrap();
 
         let market = g.markets.get(market_id).ok_or(Error::MarketNotFound)?;
-        // A timed market can only be resolved once its prediction window has closed.
         match phase_of(market, now()) {
             Phase::Resolved => return Err(Error::MarketResolved),
             Phase::Open if market.closes_at.is_some() => return Err(Error::TooEarlyToResolve),
-            _ => {} // Closed, or Open with no deadline (committee closes by resolving).
+            _ => {}
         }
         if !market.outcomes.iter().any(|o| o == winning_outcome) {
             return Err(Error::UnknownOutcome);
         }
+        let seed_total = market.seed_total();
 
         let market_positions: Vec<Position> = g
             .positions
@@ -217,24 +248,27 @@ impl Repo for MemStore {
             .filter(|p| p.market_id == market_id)
             .cloned()
             .collect();
-        let total_pool: u64 = market_positions.iter().map(|p| p.units).sum();
+        let real_total: u64 = market_positions.iter().map(|p| p.units).sum();
 
+        // Real winners only — the house seed never claims.
         let winners: Vec<(String, u64)> = market_positions
             .iter()
             .filter(|p| p.outcome == winning_outcome)
             .map(|p| (p.user_id.clone(), p.units))
             .collect();
 
-        let (winning_units, credits, refunded) = if winners.is_empty() {
-            // No one predicted the winning outcome — refund every stake.
+        let (winning_units, credits, refunded, paid_pool) = if winners.is_empty() {
+            // No real predictor won — refund real stakes; the seed is forfeited.
             let refunds: Vec<(String, u64)> = market_positions
                 .iter()
                 .map(|p| (p.user_id.clone(), p.units))
                 .collect();
-            (0u64, refunds, true)
+            (0u64, refunds, true, real_total)
         } else {
-            let (wu, payouts) = parimutuel::payouts(total_pool, &winners);
-            (wu, payouts, false)
+            // Prize pool = real stake + forfeited house seed. Winners split it all.
+            let pool = real_total + seed_total;
+            let (wu, payouts) = parimutuel::payouts(pool, &winners);
+            (wu, payouts, false, pool)
         };
 
         for (user_id, amount) in &credits {
@@ -253,7 +287,8 @@ impl Repo for MemStore {
         Ok(ResolutionReceipt {
             market_id: market_id.to_string(),
             winning_outcome: winning_outcome.to_string(),
-            total_pool,
+            total_pool: paid_pool,
+            seed_subsidy: if refunded { 0 } else { seed_total },
             winning_units,
             refunded,
             payouts: credits,

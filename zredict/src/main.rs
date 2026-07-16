@@ -56,11 +56,13 @@ fn seed(db: &Db) {
         "Will ZEC shielded-pool share exceed 35% by end of 2026?",
         vec!["YES".into(), "NO".into()],
         Some(now() + 7 * DAY),
+        100, // house seed on each side -> opens at 50/50 instead of an empty bar
     );
     db.create_market(
         "Will Ztarknet ship a public mainnet before 2027?",
         vec!["YES".into(), "NO".into()],
         None,
+        0, // unseeded -> shows the empty-bar "be the first" state for contrast
     );
 }
 
@@ -82,6 +84,9 @@ struct NewMarket {
     /// Optional: predictions close this many seconds from now. Omit for no deadline.
     #[serde(default)]
     closes_in_seconds: Option<u64>,
+    /// Optional: house seed placed on every outcome (0/None = no seed).
+    #[serde(default)]
+    seed_each: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -143,7 +148,8 @@ async fn create_market(
             "a market needs a question and at least two outcomes".into()));
     }
     let closes_at = b.closes_in_seconds.filter(|s| *s > 0).map(|s| now() + s);
-    Ok(Json(db.create_market(&b.question, outcomes, closes_at)).into_response())
+    let seed_each = b.seed_each.unwrap_or(0);
+    Ok(Json(db.create_market(&b.question, outcomes, closes_at, seed_each)).into_response())
 }
 
 async fn predict(
