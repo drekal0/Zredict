@@ -6,10 +6,9 @@
 //! by racing two predictions.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
 use crate::models::*;
@@ -20,7 +19,8 @@ const STARTING_BALANCE: u64 = 1_000;
 pub trait Repo: Send + Sync {
     fn create_user(&self, name: &str) -> User;
     fn get_user(&self, id: &str) -> Result<User>;
-    fn create_market(&self, question: &str, outcomes: Vec<String>) -> Market;
+    /// `closes_at`: optional unix-seconds deadline after which predictions stop.
+    fn create_market(&self, question: &str, outcomes: Vec<String>, closes_at: Option<u64>) -> Market;
     fn list_markets(&self) -> Vec<Market>;
     fn pool_view(&self, market_id: &str) -> Result<PoolView>;
     fn positions_of_user(&self, user_id: &str) -> Vec<Position>;
@@ -52,7 +52,7 @@ impl MemStore {
     }
 }
 
-fn now() -> u64 {
+pub fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -86,12 +86,13 @@ impl Repo for MemStore {
             .ok_or(Error::UserNotFound)
     }
 
-    fn create_market(&self, question: &str, outcomes: Vec<String>) -> Market {
+    fn create_market(&self, question: &str, outcomes: Vec<String>, closes_at: Option<u64>) -> Market {
         let market = Market {
             id: new_id("m"),
             question: question.trim().to_string(),
             outcomes,
             status: MarketStatus::Open,
+            closes_at,
             winning_outcome: None,
             resolved_by: None,
             resolved_note: None,
@@ -106,12 +107,16 @@ impl Repo for MemStore {
     }
 
     fn list_markets(&self) -> Vec<Market> {
+        let now = now();
         let mut m: Vec<Market> = self.inner.lock().unwrap().markets.values().cloned().collect();
-        // Open markets first, then by question for stable display.
+        // Order by phase (open, then closed, then resolved), then by question.
         m.sort_by(|a, b| {
-            let sa = matches!(a.status, MarketStatus::Open);
-            let sb = matches!(b.status, MarketStatus::Open);
-            sb.cmp(&sa).then(a.question.cmp(&b.question))
+            let rank = |mk: &Market| match phase_of(mk, now) {
+                Phase::Open => 0,
+                Phase::Closed => 1,
+                Phase::Resolved => 2,
+            };
+            rank(a).cmp(&rank(b)).then(a.question.cmp(&b.question))
         });
         m
     }
@@ -137,7 +142,8 @@ impl Repo for MemStore {
                 }
             })
             .collect();
-        Ok(PoolView { market, total_units: total, outcomes })
+        let phase = phase_of(&market, now());
+        Ok(PoolView { market, phase, total_units: total, outcomes })
     }
 
     fn positions_of_user(&self, user_id: &str) -> Vec<Position> {
@@ -158,8 +164,10 @@ impl Repo for MemStore {
         let mut g = self.inner.lock().unwrap();
 
         let market = g.markets.get(market_id).ok_or(Error::MarketNotFound)?;
-        if market.status != MarketStatus::Open {
-            return Err(Error::MarketClosed);
+        match phase_of(market, now()) {
+            Phase::Resolved => return Err(Error::MarketResolved),
+            Phase::Closed => return Err(Error::PredictionsClosed),
+            Phase::Open => {}
         }
         if !market.outcomes.iter().any(|o| o == outcome) {
             return Err(Error::UnknownOutcome);
@@ -193,8 +201,11 @@ impl Repo for MemStore {
         let mut g = self.inner.lock().unwrap();
 
         let market = g.markets.get(market_id).ok_or(Error::MarketNotFound)?;
-        if market.status != MarketStatus::Open {
-            return Err(Error::MarketClosed);
+        // A timed market can only be resolved once its prediction window has closed.
+        match phase_of(market, now()) {
+            Phase::Resolved => return Err(Error::MarketResolved),
+            Phase::Open if market.closes_at.is_some() => return Err(Error::TooEarlyToResolve),
+            _ => {} // Closed, or Open with no deadline (committee closes by resolving).
         }
         if !market.outcomes.iter().any(|o| o == winning_outcome) {
             return Err(Error::UnknownOutcome);

@@ -20,12 +20,15 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use zredict::store::now;
 use zredict::{MemStore, Repo};
 
 type Db = Arc<dyn Repo>;
 
 const ADMIN_TOKEN: &str = "committee-dev-token"; // placeholder; see module docs
 const INDEX_HTML: &str = include_str!("../static/index.html");
+
+const DAY: u64 = 86_400;
 
 #[tokio::main]
 async fn main() {
@@ -42,20 +45,22 @@ async fn main() {
         .route("/api/markets/:id/resolve", post(resolve))
         .with_state(db);
 
-    let addr = "0.0.0.0:3000";
     println!("zredict listening on http://localhost:3000");
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
 fn seed(db: &Db) {
+    // A timed market (closes in 7 days) and an untimed one, to show both paths.
     db.create_market(
         "Will ZEC shielded-pool share exceed 35% by end of 2026?",
         vec!["YES".into(), "NO".into()],
+        Some(now() + 7 * DAY),
     );
     db.create_market(
         "Will Ztarknet ship a public mainnet before 2027?",
         vec!["YES".into(), "NO".into()],
+        None,
     );
 }
 
@@ -74,6 +79,9 @@ struct NewUser {
 struct NewMarket {
     question: String,
     outcomes: Vec<String>,
+    /// Optional: predictions close this many seconds from now. Omit for no deadline.
+    #[serde(default)]
+    closes_in_seconds: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -134,7 +142,8 @@ async fn create_market(
         return Err(AppError(StatusCode::BAD_REQUEST,
             "a market needs a question and at least two outcomes".into()));
     }
-    Ok(Json(db.create_market(&b.question, outcomes)).into_response())
+    let closes_at = b.closes_in_seconds.filter(|s| *s > 0).map(|s| now() + s);
+    Ok(Json(db.create_market(&b.question, outcomes, closes_at)).into_response())
 }
 
 async fn predict(
@@ -189,9 +198,8 @@ impl From<zredict::Error> for AppError {
         use zredict::Error::*;
         let code = match e {
             UserNotFound | MarketNotFound => StatusCode::NOT_FOUND,
-            MarketClosed | UnknownOutcome | ZeroUnits | InsufficientBalance { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            MarketResolved | PredictionsClosed | TooEarlyToResolve => StatusCode::CONFLICT,
+            UnknownOutcome | ZeroUnits | InsufficientBalance { .. } => StatusCode::BAD_REQUEST,
         };
         AppError(code, e.to_string())
     }

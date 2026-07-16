@@ -21,19 +21,50 @@ pub enum MarketStatus {
     Resolved,
 }
 
-/// A single binary/multi-outcome market. v0 resolution is a recorded committee
-/// action (`resolved_by` + `note` + `resolved_at`); Phase 3 adds a dispute
-/// window and multi-sig committee on top of exactly these fields.
+/// A single binary/multi-outcome market.
+///
+/// Lifecycle: a market accepts predictions while **open**; once `closes_at`
+/// passes it is **closed** (no more predictions, awaiting the committee); after
+/// the committee acts it is **resolved**. `closes_at` is a unix timestamp in
+/// seconds; `None` means "no deadline" (the committee closes it by resolving).
+///
+/// v0 resolution is a recorded committee action (`resolved_by` + `note` +
+/// `resolved_at`); Phase 3 adds a dispute window and multi-sig committee on top
+/// of exactly these fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Market {
     pub id: Id,
     pub question: String,
     pub outcomes: Vec<String>,
     pub status: MarketStatus,
+    pub closes_at: Option<u64>,
     pub winning_outcome: Option<String>,
     pub resolved_by: Option<String>,
     pub resolved_note: Option<String>,
     pub resolved_at: Option<u64>,
+}
+
+/// The lifecycle phase a market is in right now (a function of status + clock).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Phase {
+    /// Accepting predictions.
+    Open,
+    /// Deadline passed; predictions stopped; awaiting committee resolution.
+    Closed,
+    /// Resolved and paid out.
+    Resolved,
+}
+
+/// Derive the current phase from a market and the current time.
+pub fn phase_of(m: &Market, now: u64) -> Phase {
+    match m.status {
+        MarketStatus::Resolved => Phase::Resolved,
+        MarketStatus::Open => match m.closes_at {
+            Some(t) if now >= t => Phase::Closed,
+            _ => Phase::Open,
+        },
+    }
 }
 
 /// One prediction: `units` points staked on `outcome`.
@@ -50,6 +81,7 @@ pub struct Position {
 #[derive(Debug, Clone, Serialize)]
 pub struct PoolView {
     pub market: Market,
+    pub phase: Phase,
     pub total_units: u64,
     /// Per outcome: units staked and implied probability (units / total).
     pub outcomes: Vec<OutcomeStat>,

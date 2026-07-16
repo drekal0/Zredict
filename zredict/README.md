@@ -16,6 +16,7 @@ Open the page, pick a name (1,000 free points), and predict. To create or resolv
 ## What it proves
 
 - End-to-end lifecycle over a real HTTP API: create market → predict → resolve → payout.
+- **Market lifecycle** — markets accept predictions until an optional close time, then sit *closed* awaiting the committee, then *resolved*. Timed markets can't be resolved early; untimed ones the committee closes by resolving.
 - **Parimutuel payouts** (winners split the whole pool pro-rata; refunds if nobody picked the winner).
 - **Atomic balances** — you can't overspend by racing two predictions (the debit + insert happen under one lock; the SQL equivalent is in `schema.sql`).
 - **Committee resolution as a recorded action** (`resolved_by` + `note` + timestamp) — the honest v0 of the oracle. The hard problem to sweat next is making this *feel* legitimate; the data model is already shaped for the Phase 3 dispute window + multi-sig committee.

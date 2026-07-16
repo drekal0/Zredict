@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>zpredict — parimutuel prediction market</title>
+<title>zredict — parimutuel prediction market</title>
 <style>
   :root{
     --ink:#0d1014; --panel:#141a21; --panel-2:#0f151b; --line:#222c37;
     --text:#e7ebef; --muted:#8b97a4; --amber:#f4b728; --amber-dim:#a37d1c;
-    --ok:#57c78a; --bad:#e06a5a;
+    --ok:#57c78a; --bad:#e06a5a; --warn:#e0a54a;
     --c0:#f4b728; --c1:#6ea8fe; --c2:#57c78a; --c3:#c07ce0;
     --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -25,8 +25,12 @@
   .tag{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;
     color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:3px 9px}
   .sub{width:100%;color:var(--muted);font-size:13px;margin-top:2px}
+  .eyebrow-row{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--muted);margin:0 0 10px}
+    color:var(--muted);margin:0}
+  .refresh{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;
+    border:1px solid var(--line);border-radius:7px;padding:4px 9px;cursor:pointer}
+  .refresh:hover{border-color:var(--amber-dim);color:var(--text)}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:16px 18px;margin-bottom:16px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -39,14 +43,15 @@
   button.primary{background:var(--amber);color:#171200;border-color:var(--amber);font-weight:600}
   button.primary:hover{filter:brightness(1.05)}
   .id-strip{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-  .bal{font-family:var(--mono)}
-  .bal b{color:var(--amber);font-size:18px}
+  .bal{font-family:var(--mono)} .bal b{color:var(--amber);font-size:18px}
   .market{border:1px solid var(--line);border-radius:12px;background:var(--panel);
     padding:18px;margin-bottom:16px}
   .q{font-size:16px;font-weight:600;margin:0 0 4px}
-  .status{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
-  .status.open{color:var(--ok)} .status.resolved{color:var(--muted)}
-  /* signature: the pool split bar — crowd belief as a price */
+  .badge{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    padding:2px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+  .badge.open{color:var(--ok)} .badge.closed{color:var(--warn)} .badge.resolved{color:var(--muted)}
+  .clock{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:2px}
+  .clock b{color:var(--text)}
   .poolbar{display:flex;height:38px;border-radius:8px;overflow:hidden;margin:14px 0 6px;
     background:var(--panel-2);border:1px solid var(--line)}
   .poolbar .seg{display:flex;align-items:center;justify-content:center;min-width:0;
@@ -60,9 +65,15 @@
   .legend .mult{font-family:var(--mono);color:var(--muted);font-size:12px}
   .predict{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;
     padding-top:14px;border-top:1px solid var(--line)}
-  .resolved-note{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);
-    color:var(--muted);font-size:13px}
-  .resolved-note b{color:var(--text)}
+  .awaiting{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);
+    color:var(--warn);font-size:13px;font-family:var(--mono)}
+  .resolution{margin-top:14px;padding:12px 14px;border-radius:9px;
+    background:var(--panel-2);border:1px solid var(--line)}
+  .resolution .head{display:flex;align-items:center;gap:8px;font-size:14px}
+  .resolution .win{font-weight:600;color:var(--amber)}
+  .resolution .meta{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px;
+    display:flex;flex-direction:column;gap:2px}
+  .resolution .meta b{color:var(--text);font-weight:600}
   .admin-open{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
   .msg{font-size:13px;min-height:18px;margin-top:8px}
   .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
@@ -78,16 +89,19 @@
 <body>
 <div class="wrap">
   <header>
-    <h1><span class="z">z</span>predict</h1>
+    <h1><span class="z">z</span>redict</h1>
     <span class="tag">play money</span>
     <span class="tag">parimutuel</span>
     <p class="sub">A prediction market skeleton. Points are not ZEC and carry no value — the shielded, real-value layer comes later. The bar under each question is the crowd's belief, priced.</p>
   </header>
 
-  <div class="panel id-strip" id="identity"><!-- filled by JS --></div>
+  <div class="panel id-strip" id="identity"></div>
 
-  <p class="eyebrow">Open markets</p>
-  <div id="markets"><p class="muted">Loading…</p></div>
+  <div class="eyebrow-row">
+    <p class="eyebrow">Markets</p>
+    <button class="refresh" onclick="loadMarkets()">&#8635; refresh</button>
+  </div>
+  <div id="markets"><p class="muted">Loading&hellip;</p></div>
 
   <details class="admin">
     <summary>Committee panel</summary>
@@ -98,11 +112,17 @@
       </div>
       <div class="field">
         <label>New market question</label>
-        <input id="newQ" placeholder="Will …?" style="width:100%" />
+        <input id="newQ" placeholder="Will &hellip;?" style="width:100%" />
       </div>
-      <div class="field">
-        <label>Outcomes (comma-separated)</label>
-        <input id="newO" value="YES, NO" style="width:100%;max-width:340px" />
+      <div class="row">
+        <div class="field" style="flex:1;min-width:200px">
+          <label>Outcomes (comma-separated)</label>
+          <input id="newO" value="YES, NO" style="width:100%" />
+        </div>
+        <div class="field">
+          <label>Close in (minutes, optional)</label>
+          <input id="newClose" type="number" min="0" placeholder="none" />
+        </div>
       </div>
       <button class="primary" onclick="createMarket()">Create market</button>
       <div class="msg" id="adminMsg"></div>
@@ -115,19 +135,29 @@ const OUTCOME_COLORS = ["var(--c0)","var(--c1)","var(--c2)","var(--c3)"];
 let USER = null;
 
 const api = async (path, opts={}) => {
-  const res = await fetch(path, {
-    headers: {"content-type":"application/json", ...(opts.headers||{})},
-    ...opts,
-  });
+  const res = await fetch(path, {headers:{"content-type":"application/json", ...(opts.headers||{})}, ...opts});
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.error || ("request failed ("+res.status+")"));
   return data;
 };
 const adminToken = () => document.getElementById("adminToken").value.trim();
 const pct = x => (x*100).toFixed(0)+"%";
-const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const nowSec = () => Math.floor(Date.now()/1000);
 
-// ---- identity ----
+function humanizeUntil(ts){
+  let s = ts - nowSec();
+  if(s <= 0) return "any moment";
+  const d = Math.floor(s/86400); s%=86400;
+  const h = Math.floor(s/3600);  s%=3600;
+  const m = Math.floor(s/60);
+  if(d) return d+"d "+h+"h";
+  if(h) return h+"h "+m+"m";
+  if(m) return m+"m";
+  return "<1m";
+}
+function fmtTime(ts){ return new Date(ts*1000).toLocaleString(); }
+
 async function initUser(){
   const saved = localStorage.getItem("zp_user");
   if(saved){ try{ USER = await api("/api/users/"+saved).then(d=>d.user); }catch{ localStorage.removeItem("zp_user"); } }
@@ -136,15 +166,15 @@ async function initUser(){
 function renderIdentity(){
   const el = document.getElementById("identity");
   if(!USER){
-    el.innerHTML = `<div class="field" style="margin:0;flex:1">
-        <label>Pick a name to get 1,000 play points</label>
-        <div class="row"><input id="nm" placeholder="your handle" />
-        <button class="primary" onclick="createUser()">Start</button></div>
-      </div><div class="msg" id="idMsg"></div>`;
+    el.innerHTML = '<div class="field" style="margin:0;flex:1">'
+      + '<label>Pick a name to get 1,000 play points</label>'
+      + '<div class="row"><input id="nm" placeholder="your handle" />'
+      + '<button class="primary" onclick="createUser()">Start</button></div>'
+      + '</div><div class="msg" id="idMsg"></div>';
   } else {
-    el.innerHTML = `<div class="bal">Playing as <b style="color:var(--text)">${esc(USER.name)}</b>
-        &nbsp;·&nbsp; balance <b>${USER.balance}</b> pts</div>
-      <button onclick="switchUser()">Switch</button>`;
+    el.innerHTML = '<div class="bal">Playing as <b style="color:var(--text)">'+esc(USER.name)+'</b>'
+      + '&nbsp;&middot;&nbsp; balance <b>'+USER.balance+'</b> pts</div>'
+      + '<button onclick="switchUser()">Switch</button>';
   }
 }
 async function createUser(){
@@ -153,7 +183,7 @@ async function createUser(){
     USER = await api("/api/users",{method:"POST",body:JSON.stringify({name})});
     localStorage.setItem("zp_user", USER.id);
     renderIdentity(); loadMarkets();
-  }catch(e){ document.getElementById("idMsg").className="msg err"; document.getElementById("idMsg").textContent=e.message; }
+  }catch(e){ const el=document.getElementById("idMsg"); el.className="msg err"; el.textContent=e.message; }
 }
 function switchUser(){ localStorage.removeItem("zp_user"); USER=null; renderIdentity(); }
 async function refreshUser(){
@@ -162,57 +192,76 @@ async function refreshUser(){
   renderIdentity();
 }
 
-// ---- markets ----
 async function loadMarkets(){
   const box = document.getElementById("markets");
   try{
     const views = await api("/api/markets");
     box.innerHTML = views.length ? views.map(marketCard).join("") :
-      `<p class="muted">No markets yet. Open the committee panel to create one.</p>`;
-  }catch(e){ box.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+      '<p class="muted">No markets yet. Open the committee panel to create one.</p>';
+  }catch(e){ box.innerHTML = '<p class="msg err">'+esc(e.message)+'</p>'; }
+}
+
+function clockLine(v){
+  const m = v.market;
+  if(v.phase === "open"){
+    return m.closes_at
+      ? '<div class="clock">predictions close in <b>'+humanizeUntil(m.closes_at)+'</b> &middot; '+esc(fmtTime(m.closes_at))+'</div>'
+      : '<div class="clock">no deadline &middot; committee closes it by resolving</div>';
+  }
+  if(v.phase === "closed"){
+    return '<div class="clock">predictions closed'+(m.closes_at?' &middot; '+esc(fmtTime(m.closes_at)):'')+'</div>';
+  }
+  return "";
 }
 
 function marketCard(v){
-  const m = v.market, open = m.status === "open";
-  const total = v.total_units;
+  const m = v.market, phase = v.phase, total = v.total_units;
+
   const bar = total === 0
-    ? `<div class="poolbar empty">no stake yet — be the first to set the price</div>`
-    : `<div class="poolbar">` + v.outcomes.map((o,i)=>{
+    ? '<div class="poolbar empty">no stake yet &mdash; be the first to set the price</div>'
+    : '<div class="poolbar">' + v.outcomes.map(function(o,i){
         const share = o.units/total;
-        return share>0 ? `<div class="seg" style="flex:0 0 ${share*100}%;background:${OUTCOME_COLORS[i%4]}">${esc(o.outcome)} ${pct(share)}</div>` : "";
-      }).join("") + `</div>`;
-  const legend = `<div class="legend">` + v.outcomes.map((o,i)=>{
-      const mult = o.payout_multiple ? `×${o.payout_multiple.toFixed(2)}` : "—";
-      return `<div class="it"><span class="dot" style="background:${OUTCOME_COLORS[i%4]}"></span>
-        ${esc(o.outcome)} <span class="mult">${o.units} pts · ${mult}</span></div>`;
-    }).join("") + `</div>`;
+        return share>0 ? '<div class="seg" style="flex:0 0 '+(share*100)+'%;background:'+OUTCOME_COLORS[i%4]+'">'+esc(o.outcome)+' '+pct(share)+'</div>' : "";
+      }).join("") + '</div>';
 
-  const opts = m.outcomes.map(o=>`<option>${esc(o)}</option>`).join("");
-  const predict = open ? `<div class="predict">
-      <select id="out-${m.id}">${opts}</select>
-      <input type="number" id="stake-${m.id}" min="1" value="50" />
-      <button class="primary" onclick="predict('${m.id}')">Predict</button>
-      <span class="msg" id="msg-${m.id}"></span>
-    </div>` : "";
+  const legend = '<div class="legend">' + v.outcomes.map(function(o,i){
+      const mult = o.payout_multiple ? '&times;'+o.payout_multiple.toFixed(2) : "&mdash;";
+      return '<div class="it"><span class="dot" style="background:'+OUTCOME_COLORS[i%4]+'"></span> '
+        + esc(o.outcome)+' <span class="mult">'+o.units+' pts &middot; '+mult+'</span></div>';
+    }).join("") + '</div>';
 
-  const resolvePanel = open ? `<div class="admin-open row">
-      <span class="muted" style="font-size:12px">Committee:</span>
-      <select id="win-${m.id}">${opts}</select>
-      <input id="note-${m.id}" placeholder="resolution note / source" style="flex:1;min-width:160px" />
-      <button onclick="resolveMarket('${m.id}')">Resolve</button>
-    </div>` : "";
+  const opts = m.outcomes.map(function(o){ return '<option>'+esc(o)+'</option>'; }).join("");
 
-  const resolvedNote = !open ? `<div class="resolved-note">
-      Resolved <b>${esc(m.winning_outcome||"")}</b> by ${esc(m.resolved_by||"committee")}${m.resolved_note?` — ${esc(m.resolved_note)}`:""}.</div>` : "";
+  const predict = phase === "open" ? '<div class="predict">'
+      + '<select id="out-'+m.id+'">'+opts+'</select>'
+      + '<input type="number" id="stake-'+m.id+'" min="1" value="50" />'
+      + '<button class="primary" onclick="predict(\''+m.id+'\')">Predict</button>'
+      + '<span class="msg" id="msg-'+m.id+'"></span></div>' : "";
 
-  return `<div class="market">
-    <div class="row" style="justify-content:space-between">
-      <p class="q">${esc(m.question)}</p>
-      <span class="status ${open?"open":"resolved"}">${open?"open":"resolved"}</span>
-    </div>
-    <div class="muted" style="font-size:12px">${total} pts in the pool</div>
-    ${bar}${legend}${predict}${resolvePanel}${resolvedNote}
-  </div>`;
+  const awaiting = phase === "closed"
+    ? '<div class="awaiting">predictions closed &mdash; awaiting committee resolution</div>' : "";
+
+  const canResolve = phase === "closed" || (phase === "open" && !m.closes_at);
+  const resolvePanel = canResolve ? '<div class="admin-open row">'
+      + '<span class="muted" style="font-size:12px">Committee:</span>'
+      + '<select id="win-'+m.id+'">'+opts+'</select>'
+      + '<input id="note-'+m.id+'" placeholder="resolution note / source" style="flex:1;min-width:160px" />'
+      + '<button onclick="resolveMarket(\''+m.id+'\')">Resolve</button></div>' : "";
+
+  const resolution = phase === "resolved" ? '<div class="resolution">'
+      + '<div class="head">Resolved <span class="win">'+esc(m.winning_outcome)+'</span></div>'
+      + '<div class="meta">'
+      + '<span>by <b>'+esc(m.resolved_by || "committee")+'</b>'+(m.resolved_at?' &middot; '+esc(fmtTime(m.resolved_at)):'')+'</span>'
+      + (m.resolved_note ? '<span>note: '+esc(m.resolved_note)+'</span>' : '<span class="muted">no note given</span>')
+      + '</div></div>' : "";
+
+  return '<div class="market">'
+    + '<div class="row" style="justify-content:space-between;align-items:flex-start">'
+    + '<div style="flex:1;min-width:0"><p class="q">'+esc(m.question)+'</p>'+clockLine(v)+'</div>'
+    + '<span class="badge '+phase+'">'+phase+'</span></div>'
+    + '<div class="muted" style="font-size:12px;margin-top:6px">'+total+' pts in the pool</div>'
+    + bar+legend+predict+awaiting+resolvePanel+resolution
+    + '</div>';
 }
 
 async function predict(id){
@@ -224,20 +273,24 @@ async function predict(id){
     const r = await api("/api/markets/"+id+"/predict",{method:"POST",
       body:JSON.stringify({user_id:USER.id, outcome, units})});
     USER = r.user; renderIdentity();
-    msg.className="msg ok"; msg.textContent = `staked ${units} on ${outcome}`;
+    msg.className="msg ok"; msg.textContent = "staked "+units+" on "+outcome;
     loadMarkets();
   }catch(e){ msg.className="msg err"; msg.textContent = e.message; }
 }
 
 async function createMarket(){
   const q = document.getElementById("newQ").value;
-  const outcomes = document.getElementById("newO").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const outcomes = document.getElementById("newO").value.split(",").map(function(s){return s.trim();}).filter(Boolean);
+  const mins = parseInt(document.getElementById("newClose").value,10);
+  const body = {question:q, outcomes:outcomes};
+  if(!isNaN(mins) && mins > 0) body.closes_in_seconds = mins*60;
   const msg = document.getElementById("adminMsg");
   try{
     await api("/api/markets",{method:"POST",
-      headers:{"x-admin-token":adminToken()}, body:JSON.stringify({question:q, outcomes})});
+      headers:{"x-admin-token":adminToken()}, body:JSON.stringify(body)});
     msg.className="msg ok"; msg.textContent="market created";
-    document.getElementById("newQ").value=""; loadMarkets();
+    document.getElementById("newQ").value=""; document.getElementById("newClose").value="";
+    loadMarkets();
   }catch(e){ msg.className="msg err"; msg.textContent=e.message; }
 }
 
@@ -247,12 +300,13 @@ async function resolveMarket(id){
   try{
     await api("/api/markets/"+id+"/resolve",{method:"POST",
       headers:{"x-admin-token":adminToken()},
-      body:JSON.stringify({winning_outcome, note, resolved_by:"committee"})});
+      body:JSON.stringify({winning_outcome:winning_outcome, note:note, resolved_by:"committee"})});
     await refreshUser(); loadMarkets();
   }catch(e){ alert(e.message); }
 }
 
 initUser().then(loadMarkets);
+setInterval(function(){ if(!document.querySelector("input:focus, select:focus")) loadMarkets(); }, 20000);
 </script>
 </body>
 </html>

@@ -7,7 +7,12 @@ use std::fmt;
 pub enum Error {
     UserNotFound,
     MarketNotFound,
-    MarketClosed,
+    /// Action attempted on an already-resolved market.
+    MarketResolved,
+    /// Predictions attempted after the market's close time.
+    PredictionsClosed,
+    /// Resolution attempted while a timed market is still accepting predictions.
+    TooEarlyToResolve,
     UnknownOutcome,
     ZeroUnits,
     InsufficientBalance { have: u64, need: u64 },
@@ -18,7 +23,13 @@ impl fmt::Display for Error {
         match self {
             Error::UserNotFound => write!(f, "that account doesn't exist"),
             Error::MarketNotFound => write!(f, "that market doesn't exist"),
-            Error::MarketClosed => write!(f, "this market is resolved — predictions are closed"),
+            Error::MarketResolved => write!(f, "this market is resolved — it's settled and closed"),
+            Error::PredictionsClosed => {
+                write!(f, "predictions have closed for this market — it's awaiting resolution")
+            }
+            Error::TooEarlyToResolve => {
+                write!(f, "this market is still open for predictions — it can't be resolved yet")
+            }
             Error::UnknownOutcome => write!(f, "pick one of the market's listed outcomes"),
             Error::ZeroUnits => write!(f, "stake at least 1 point"),
             Error::InsufficientBalance { have, need } => {

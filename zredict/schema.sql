@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS markets (
   id               TEXT PRIMARY KEY,
   question         TEXT NOT NULL,
   outcomes         TEXT NOT NULL,           -- JSON array of outcome labels
+  closes_at        INTEGER,                 -- unix seconds; NULL = no deadline
   status           TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
   winning_outcome  TEXT,
   resolved_by      TEXT,
